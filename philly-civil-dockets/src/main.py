@@ -4,16 +4,13 @@ import pandas as pd
 from pathlib import Path
 import re
 
-CASE_IDS = [
-    "141202168",
-    "141202169",
-    "141202170",
-]
-
-URL = "https://fjdefile.phila.gov/dockets/zk_fjd_public_qry_03.zp_dktrpt_setup_idx?uid=BaiXGnvECIolqsSYDxam&o=HcobAXl4Y!rzHdb"
-
+INPUT_FILE = Path("data/input/case_ids.xlsx")
 OUTPUT_DIR = Path("data/output")
 SCREENSHOT_DIR = Path("screenshots")
+
+OUTPUT_FILE = OUTPUT_DIR / "cases_results.xlsx"
+
+URL = "https://fjdefile.phila.gov/dockets/zk_fjd_public_qry_03.zp_dktrpt_setup_idx?uid=BaiXGnvECIolqsSYDxam&o=HcobAXl4Y!rzHdb"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -28,6 +25,26 @@ def clean_text(text):
 def extract_money(text):
     match = re.search(r"\$[\d,]+(?:\.\d{2})?", text)
     return match.group(0) if match else ""
+
+
+def load_case_ids():
+    if not INPUT_FILE.exists():
+        raise FileNotFoundError(
+            f"Input file not found: {INPUT_FILE}\n"
+            "Create an Excel file at data/input/case_ids.xlsx with a column named 'case_id'."
+        )
+
+    df = pd.read_excel(INPUT_FILE)
+
+    if "case_id" not in df.columns:
+        raise Exception("Input Excel file must contain a column named 'case_id'.")
+
+    case_ids = df["case_id"].dropna().astype(str).str.strip().tolist()
+
+    if not case_ids:
+        raise Exception("No Case IDs found in the input Excel file.")
+
+    return case_ids
 
 
 def get_case_description(soup):
@@ -182,6 +199,10 @@ def scrape_case(page, case_id):
 
 
 with sync_playwright() as p:
+    case_ids = load_case_ids()
+
+    print(f"Loaded {len(case_ids)} Case IDs from {INPUT_FILE}")
+
     browser = p.chromium.launch(
         headless=False,
         slow_mo=250
@@ -196,7 +217,7 @@ with sync_playwright() as p:
     results = []
 
     try:
-        for case_id in CASE_IDS:
+        for case_id in case_ids:
             result = scrape_case(page, case_id)
             results.append(result)
 
@@ -204,11 +225,9 @@ with sync_playwright() as p:
             page.wait_for_timeout(2000)
 
         df = pd.DataFrame(results)
+        df.to_excel(OUTPUT_FILE, index=False)
 
-        output_file = OUTPUT_DIR / "cases_results.xlsx"
-        df.to_excel(output_file, index=False)
-
-        print(f"\nSaved Excel file to: {output_file}")
+        print(f"\nSaved Excel file to: {OUTPUT_FILE}")
 
     finally:
         input("\nPress Enter to close browser...")
